@@ -770,6 +770,51 @@ function downloadFile(url, filename) {
   window.open(url, '_blank');
 }
 
+
+// ===== URLでファイルを登録 =====
+function addFileByUrl(pid) {
+  var input = document.getElementById('file-url-input-'+pid);
+  var url = (input ? input.value.trim() : '');
+  if(!url) { alert('URLを入力してください'); return; }
+  if(!url.startsWith('http')) { alert('http または https で始まるURLを入力してください'); return; }
+
+  var p = state.projects.find(function(x){ return x.id===pid; });
+  if(!p) return;
+  if(!p.files) p.files=[];
+
+  // ファイル名をURLから推測
+  var name = decodeURIComponent(url.split('/').pop().split('?')[0]) || 'リンクファイル';
+  if(!name || name.length < 2) name = 'リンクファイル';
+
+  // Google DriveのURLを直接ダウンロードURLに変換
+  var dlUrl = url;
+  var gdMatch = url.match(/drive\.google\.com\/file\/d\/([^\/]+)/);
+  if(gdMatch) {
+    dlUrl = 'https://drive.google.com/uc?export=download&id='+gdMatch[1];
+    if(!name.includes('.')) name = 'GoogleDrive_'+gdMatch[1].slice(0,8)+'.pdf';
+  }
+
+  var ext = name.split('.').pop().toLowerCase();
+  var type = ['jpg','jpeg','png','gif','webp'].includes(ext) ? 'image' : 'file';
+  var newId = Date.now();
+  var newFile = { id:newId, name:name, type:type, url:dlUrl, size:0, isLink:true };
+  p.files.push(newFile);
+  fbSave('projects', pid, p);
+
+  // リストに追加
+  var listEl = document.getElementById('file-list-'+pid);
+  if(listEl) {
+    var emptyEl = listEl.querySelector('[data-empty]');
+    if(emptyEl) emptyEl.remove();
+    var row = document.createElement('div');
+    row.className = 'file-item';
+    row.style.gap = '8px';
+    row.innerHTML = buildFileRow(newFile, pid);
+    listEl.appendChild(row);
+  }
+  if(input) input.value = '';
+}
+
 // ===== Cloudinary設定 =====
 const CLOUDINARY = {
   cloudName: 'duyhpt9pb',
@@ -2344,171 +2389,57 @@ function isImage(name) {
 
 function renderTabFiles(p) {
   if(!p.files) p.files=[];
-  var storageOk = !!(CLOUDINARY && CLOUDINARY.cloudName); // Cloudinary対応
+  var storageOk = !!(CLOUDINARY && CLOUDINARY.cloudName);
   var items = p.files.length
-    ? p.files.map(function(f){ return '<div class="file-item" style="gap:8px" data-fid="'+f.id+'">'+buildFileRow(f,p.id)+'</div>'; }).join('')
+    ? p.files.map(function(f){ return '<div class="file-item" style="gap:8px">'+buildFileRow(f,p.id)+'</div>'; }).join('')
     : '<div style="text-align:center;padding:20px 0;color:#aaa;font-size:13px" data-empty="1">ファイルがありません</div>';
 
   var html = '<div class="section-card">';
-  html += '<div class="section-header"><div class="section-title">📁 ファイル・写真</div>';
-  html += '<div style="display:flex;gap:8px"><button class="btn btn-outline btn-sm" onclick="addFolder('+p.id+')">＋ フォルダ</button></div></div>';
+  html += '<div class="section-header"><div class="section-title">📁 ファイル・写真</div></div>';
   html += '<div class="section-body" style="padding:12px">';
 
+  // URL入力フォーム
+  html += '<div style="background:#f0f4ff;border:1px solid #c7d7fd;border-radius:10px;padding:14px;margin-bottom:12px">';
+  html += '<div style="font-size:13px;font-weight:600;color:#3b5bdb;margin-bottom:8px">🔗 URLで登録（PDF・GoogleドライブなどのURL）</div>';
+  html += '<div style="display:flex;gap:8px;margin-bottom:6px">';
+  html += '<input id="file-url-input-'+p.id+'" class="form-input" style="flex:1;font-size:13px" placeholder="https://drive.google.com/... または任意のURL">';
+  html += '<button class="btn btn-primary btn-sm" onclick="addFileByUrl('+p.id+')" style="white-space:nowrap;padding:6px 12px">＋ 追加</button>';
+  html += '</div>';
+  html += '<div style="font-size:11px;color:#6b7280">GoogleドライブのPDFは「リンクを知っている人全員」に共有設定してURLを貼り付けてください</div>';
+  html += '</div>';
+
+  // ドラッグ＆ドロップ（画像・音声・動画）
   if(storageOk) {
-    html += '<div id="file-dropzone-'+p.id+'" style="border:2px dashed #c7d7fd;border-radius:10px;padding:20px;text-align:center;cursor:pointer;background:#f8faff;margin-bottom:14px"';
+    html += '<div id="file-dropzone-'+p.id+'" style="border:2px dashed #c7d7fd;border-radius:10px;padding:16px;text-align:center;cursor:pointer;background:#f8faff;margin-bottom:12px"';
     html += ' ondragover="fileDragOver(event)" ondragleave="fileDragLeave(event)" ondrop="fileDrop(event,'+p.id+')"';
     html += ' onclick="triggerFileInput('+p.id+')">';
-    html += '<div style="font-size:28px;margin-bottom:6px">📂</div>';
-    html += '<div style="font-size:13px;font-weight:500;color:#2563eb;margin-bottom:3px">ここにファイルをドラッグ＆ドロップ</div>';
-    html += '<div style="font-size:12px;color:#888">または<u>クリックしてファイルを選択</u></div>';
-    html += '<div style="font-size:11px;color:#aaa;margin-top:4px">JPG・PNG・PDF・MP3・MP4・Word・Excel など（最大50MB）</div>';
+    html += '<div style="font-size:24px;margin-bottom:4px">📂</div>';
+    html += '<div style="font-size:13px;font-weight:500;color:#2563eb;margin-bottom:2px">画像・音声・動画をドラッグ＆ドロップ</div>';
+    html += '<div style="font-size:12px;color:#888">または<u>クリックして選択</u>　JPG・PNG・MP3・MP4など</div>';
     html += '</div>';
     html += '<div id="file-upload-progress-'+p.id+'" style="margin-bottom:10px"></div>';
-  } else {
-    html += '<div style="padding:10px 12px;background:#fefce8;border:1px solid #fde68a;border-radius:8px;font-size:12px;color:#a16207;margin-bottom:12px">';
-    html += '⚠️ Firebase Storageに接続するとファイルのアップロードが有効になります。<br>Firebaseコンソール → Storage → 始める で有効化してください。</div>';
   }
   html += '<div id="file-list-'+p.id+'">'+items+'</div>';
   html += '</div></div>';
 
-  // input要素をbodyに追加（1つだけ）
   setTimeout(function() {
     if(!document.getElementById('file-input-global')) {
       var inp = document.createElement('input');
-      inp.type = 'file'; inp.id = 'file-input-global';
-      inp.multiple = true;
-      inp.accept = 'image/*,.pdf,.mp3,.mp4,.doc,.docx,.xls,.xlsx,.wav,.m4a';
-      inp.style.display = 'none';
-      inp.onchange = function(e) {
-        var files = Array.from(e.target.files||[]);
-        if(files.length && _currentFilePid) uploadFiles(_currentFilePid, files);
-        e.target.value = '';
+      inp.type='file'; inp.id='file-input-global';
+      inp.multiple=true;
+      inp.accept='image/*,.mp3,.mp4,.wav,.m4a,.mov';
+      inp.style.display='none';
+      inp.onchange=function(e){
+        var files=Array.from(e.target.files||[]);
+        if(files.length&&_currentFilePid) uploadFiles(_currentFilePid,files);
+        e.target.value='';
       };
       document.body.appendChild(inp);
     }
-  }, 0);
-
+  },0);
   return html;
 }
 
-var _currentFilePid = null;
-function triggerFileInput(pid) {
-  _currentFilePid = pid;
-  var inp = document.getElementById('file-input-global');
-  if(inp) inp.click();
-}
-
-
-function fmtFileSize(bytes) {
-  if(!bytes) return '';
-  if(bytes < 1024) return bytes+'B';
-  if(bytes < 1024*1024) return (bytes/1024).toFixed(1)+'KB';
-  return (bytes/1024/1024).toFixed(1)+'MB';
-}
-
-function fileDragOver(e) {
-  e.preventDefault();
-  e.currentTarget.style.background='#eff6ff';
-  e.currentTarget.style.borderColor='#2563eb';
-}
-function fileDragLeave(e) {
-  e.currentTarget.style.background='#f8faff';
-  e.currentTarget.style.borderColor='#c7d7fd';
-}
-function fileDrop(e, pid) {
-  e.preventDefault();
-  fileDragLeave(e);
-  const files = [...e.dataTransfer.files];
-  if(files.length) uploadFiles(pid, files);
-}
-function fileInputChange(e, pid) {
-  const files = [...e.target.files];
-  if(files.length) uploadFiles(pid, files);
-  e.target.value='';
-}
-
-function uploadFiles(pid, files) {
-  var p = state.projects.find(function(x){ return x.id===pid; });
-  if(!p) return;
-  if(!p.files) p.files=[];
-  var progressEl = document.getElementById('file-upload-progress-'+pid);
-  if(progressEl) progressEl.style.display = 'block';
-
-  files.forEach(function(file) {
-    if(file.size > 100*1024*1024) { alert(file.name+' は100MBを超えています'); return; }
-
-    var barId = 'prog-'+Date.now()+Math.random().toString(36).slice(2);
-    if(progressEl) {
-      progressEl.insertAdjacentHTML('beforeend',
-        '<div id="'+barId+'" style="margin-bottom:8px">'
-        +'<div style="font-size:12px;color:#555;margin-bottom:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">📤 '+file.name+'</div>'
-        +'<div style="height:5px;background:#e5e7eb;border-radius:3px;overflow:hidden">'
-        +'<div id="'+barId+'-bar" style="height:100%;background:#2563eb;width:0%;transition:width .2s"></div>'
-        +'</div></div>'
-      );
-    }
-
-    var resType = getResourceType(file.name);
-    var uploadUrl = 'https://api.cloudinary.com/v1_1/'+CLOUDINARY.cloudName+'/auto/upload';
-    var fd = new FormData();
-    fd.append('file', file);
-    fd.append('upload_preset', CLOUDINARY.uploadPreset);
-    fd.append('resource_type', resType);
-    fd.append('folder', 'en-kanri-'+pid);
-
-    var xhr = new XMLHttpRequest();
-    xhr.upload.onprogress = function(e) {
-      if(e.lengthComputable) {
-        var pct = Math.round(e.loaded/e.total*100);
-        var bar = document.getElementById(barId+'-bar');
-        if(bar) bar.style.width = pct+'%';
-      }
-    };
-    xhr.onload = function() {
-      var barEl = document.getElementById(barId);
-      if(barEl) barEl.remove();
-      if(progressEl && !progressEl.children.length) progressEl.style.display='none';
-
-      if(xhr.status === 200) {
-        var res = JSON.parse(xhr.responseText);
-        var newId = Date.now();
-        var ext = file.name.split('.').pop().toLowerCase();
-        var ftype = ['jpg','jpeg','png','gif','webp'].includes(ext) ? 'image' : resType;
-        var newFile = {
-          id: newId, name: file.name, type: ftype,
-          url: res.secure_url, size: file.size,
-          resourceType: resType, publicId: res.public_id
-        };
-        p.files.push(newFile);
-        fbSave('projects', pid, p);
-
-        // リストに即追加
-        var listEl = document.getElementById('file-list-'+pid);
-        if(listEl) {
-          var emptyEl = listEl.querySelector('[data-empty]');
-          if(emptyEl) emptyEl.remove();
-          var row = document.createElement('div');
-          row.className = 'file-item';
-          row.style.gap = '8px';
-          row.innerHTML = buildFileRow(newFile, pid);
-          listEl.appendChild(row);
-        }
-      } else {
-        var errTxt = '';
-        try { errTxt = JSON.parse(xhr.responseText).error.message; } catch(e){ errTxt = 'status '+xhr.status; }
-        alert('アップロードエラー: '+file.name+'\n'+errTxt);
-        console.error('Upload error:', xhr.responseText);
-      }
-    };
-    xhr.onerror = function() {
-      var barEl = document.getElementById(barId);
-      if(barEl) barEl.remove();
-      alert('ネットワークエラー: '+file.name);
-    };
-    xhr.open('POST', uploadUrl);
-    xhr.send(fd);
-  });
-}
 
 function buildFileRow(f, pid) {
   var icon = getFileIcon(f.type, f.name);
